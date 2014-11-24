@@ -21,80 +21,40 @@ aligned_reads_file = sys.argv[2]
 aligned_reads_set = set(SeqIO.parse(open(aligned_reads_file, 'r'), 'fasta'))
 
 gene_length = len(list(SeqIO.parse(open(aligned_reads_file, 'r'), 'fasta'))[1].seq)
-
+sequence_list = []
 ###- Creating dictionaries where each entry is a read, and it's item it the taxonomy assigned by pplacer -#
 
 read_tax_dict = {}
-read_tax_dict_G = {}
-read_tax_dict_F = {}
-read_tax_dict_O = {}
-read_tax_dict_C = {}
-read_tax_dict_P = {}
-read_tax_dict_K = {}
 
 ###- Creating lists with the range of genera etc within each sample -#
-genera = []
-families = []
-orders = []
-classes = []
-phyla = []
-kingdoms = []
+taxonomy_div = {}
 
 
 ###- Creating dictionary with all reads, and taxonomy assigned to each -#
+
 for line in open(guppy_file,'r'):
     lst = list(line.rstrip().split())
-    test = 1
     if lst[0] != 'name' and lst[1] == lst[2] and float(lst[len(lst)-2]) > float(0.5):
+        if lst[3] not in taxonomy_div:
+            taxonomy_div[lst[3]] = []
         if lst[0] not in read_tax_dict:
             read_tax_dict[lst[0]] = []
             read_tax_dict[lst[0]].append(lst[3])
         else:
             read_tax_dict[lst[0]].append(lst[3])
-
+print taxonomy_div
 ###- Stratifying this main dictionary into dictionaries by different taxonomic rank. At the same time, building -#
 
-for read_name, taxonomy in read_tax_dict.iteritems():
-    if len(taxonomy) == 7:
-        read_tax_dict_G[read_name] = taxonomy[6]
-        if taxonomy[6] not in genera:
-                genera.append(taxonomy[6])
 
-    if len(taxonomy) == 6:
-        read_tax_dict_F[read_name] = taxonomy[5]
-        if taxonomy[5] not in families:
-                families.append(taxonomy[5])
+for taxonomy_index in reversed(range(1,8)):
+    for type in taxonomy_div:
+        print '>'+type
+        for read_name, taxonomy in read_tax_dict.iteritems():
+            if len(taxonomy) == taxonomy_index:
+                if type == taxonomy[taxonomy_index-1]:
+                    for x in aligned_reads_set:
+                        if x.id == read_name:
+                            print x.seq    
+            
 
-    if len(taxonomy) == 5:
-        read_tax_dict_O[read_name] = taxonomy[4]
-        if taxonomy[4] not in orders:
-                orders.append(taxonomy[4])
-
-    if len(taxonomy) == 4:
-        read_tax_dict_C[read_name] = taxonomy[3]
-        if taxonomy[3] not in classes:
-                classes.append(taxonomy[3])
-
-    if len(taxonomy) == 3:
-        read_tax_dict_P[read_name] = taxonomy[2]
-        if taxonomy[2] not in phyla:
-                phyla.append(taxonomy[2])
-
-    if len(taxonomy) == 2:
-        read_tax_dict_K[read_name] = taxonomy[1]
-        if taxonomy[1] not in kingdoms:
-                kingdoms.append(taxonomy[1])
-
-###- For each member of the genus list, match up the reads that have this classification, and assemble the reads. -#
-code.interact(local=locals())
-
-for genus in genera:
-    for read_id, classification in read_tax_dict_G.iteritems():
-        if classification == genus:
-            for x in aligned_reads_set:
-                if x.id == read_id:
-                    print x.seq
-        else:
-            continue
-    exit(1)
 exit(1)
