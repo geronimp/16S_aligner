@@ -6,11 +6,19 @@
 #                              v.0.0.1                           #
 # ============================================================== #
 
-
+__author__ = "Joel Boyd"
+__copyright__ = "Copyright 2014"
+__credits__ = ["Joel Boyd"]
+__license__ = "GPL3"
+__maintainer__ = "Joel Boyd"
+__email__ = "joel.boyd near uq.net.au"
+__status__ = "Development"
+__version__ = "0.0.1"
 
 # --- Importing modules
 import sys
 import code
+import subprocess
 from datetime import datetime
 try:
     from Bio import SeqIO
@@ -23,14 +31,15 @@ except ImportError:
 # --- Determine inputs
 
 guppy_file = sys.argv[1]
-aligned_reads_file = sys.argv[2]
+reads_file = sys.argv[2]
+
 
 
 
 # --- Store the aligned sequence file into a set. Also store the length of the gene of interest 
 
-aligned_reads_set = set(SeqIO.parse(open(aligned_reads_file, 'r'), 'fasta'))
-gene_length = len(list(SeqIO.parse(open(aligned_reads_file, 'r'), 'fasta'))[1].seq)
+aligned_reads_set = set(SeqIO.parse(open(reads_file, 'r'), 'fasta'))
+gene_length = len(list(SeqIO.parse(open(reads_file, 'r'), 'fasta'))[1].seq)
 
 
 
@@ -76,7 +85,7 @@ for read_name, taxonomy in read_tax_dict.iteritems():
 
 
 
-# --- Stratifying this main dictionary into dictionaries by different taxonomic rank. At the same time, building
+# --- Stratifying this main dictionary into dictionaries by different taxonomic rank. Write them to a file.
 
 for taxonomy_index in reversed(range(1,8)):
     
@@ -93,42 +102,20 @@ for taxonomy_index in reversed(range(1,8)):
                 for sequence in aligned_reads_set:
                     
                     if sequence.id == read_name:
-                        hits_dictionary[taxonomy[len(taxonomy) - 2]].append(sequence.seq)
+                        hits_dictionary[taxonomy[len(taxonomy) - 2]].append(sequence)             
                          
-   
+                         
                                                 
-# --- Produces a report of the heterogeneity and the consensus sequence for each hit at each taxonomic rank
+# --- Assembly using CAP3 (for now)
+
+message('Writing parsed sequences to files')
 
 for tax_name, sequences in hits_dictionary.iteritems():
-    sequence_length = len(sequences[0])
-    tot = [0] * sequence_length 
-    As = [0] * sequence_length 
-    Cs = [0] * sequence_length 
-    Ts = [0] * sequence_length 
-    Gs = [0] * sequence_length 
-
-    for sequence in sequences:
+    output_sequence_file_path = open('%s_sequences.fa' % tax_name, 'w')
     
-        for position, nucleotide in enumerate(sequence):
+    for sequence in sequences:
+        output_sequence_file_path.write('>'+sequence.id+'\n')
+        output_sequence_file_path.write(str(sequence.seq+'\n'))
         
-            if nucleotide == 'A':
-                As[position] += 1
-                tot[position] += 1
-            
-            if nucleotide == 'T':
-                Ts[position] += 1
-                tot[position] += 1
-                
-            if nucleotide == 'G':
-                Gs[position] += 1
-                tot[position] += 1
-            
-            if nucleotide == 'C':
-                Cs[position] += 1
-                tot[position] += 1
-                
-        print As
-        print Ts
-        print Gs
-        print Cs
-        exit(1)
+    
+    
