@@ -3,6 +3,7 @@
 
 # ============================================================== #
 #  Script for extracting clustered 16S rRNA reads from datasets  #
+#                              v.0.0.1                           #
 # ============================================================== #
 
 
@@ -97,10 +98,37 @@ for taxonomy_index in reversed(range(1,8)):
    
                                                 
 # --- Produces a report of the heterogeneity and the consensus sequence for each hit at each taxonomic rank
-print len(hits_dictionary)
-for tax_name, taxonomy in hits_dictionary.iteritems():
-    code.interact(local=locals())
-    print '>'+read_name
-    for i in taxonomy:
-        print i + '\n'
+
+for tax_name, sequences in hits_dictionary.iteritems():
+    sequence_length = len(sequences[0])
+    tot = [0] * sequence_length 
+    As = [0] * sequence_length 
+    Cs = [0] * sequence_length 
+    Ts = [0] * sequence_length 
+    Gs = [0] * sequence_length 
+
+    for sequence in sequences:
+    
+        for position, nucleotide in enumerate(sequence):
+        
+            if nucleotide == 'A':
+                As[position] += 1
+                tot[position] += 1
             
+            if nucleotide == 'T':
+                Ts[position] += 1
+                tot[position] += 1
+                
+            if nucleotide == 'G':
+                Gs[position] += 1
+                tot[position] += 1
+            
+            if nucleotide == 'C':
+                Cs[position] += 1
+                tot[position] += 1
+                
+        print As
+        print Ts
+        print Gs
+        print Cs
+        exit(1)
