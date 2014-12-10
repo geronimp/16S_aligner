@@ -50,7 +50,7 @@ class Messenger:
         return '  [%s]: %s' % (self.time, self.message)
     
     def error_message(self):
-        return '  [%s] == ERROR == : %s' % (self.time, self.message)
+        return '  [%s]: == ERROR == %s' % (self.time, self.message)
 
 
 
@@ -62,8 +62,8 @@ class TaxoGroup:
         read_tax_dict = {}
         
         for line in open(guppy_file,'r'):
-        
-            lst = list(line.rstrip().split())
+            
+            lst = list(line.rstrip().replace('Candidatus ', 'Candidatus_').split())
             
             if lst[0] != 'name' and lst[1] == lst[2] and float(lst[len(lst)-2]) > float(0.5):
                 
@@ -82,7 +82,8 @@ class TaxoGroup:
         print Messenger("Sorting 16S sequences").date_n_message()
         sequences = set(SeqIO.parse(open(sequences_file, 'r'), 'fasta'))
         tax_list = [{}, {}, {}, {}, {}, {}]
-
+        reverse_reads = []
+        
         for read_name, classification in dictionary.iteritems():
             
             tax_group = classification[len(classification) - 1]
@@ -92,34 +93,43 @@ class TaxoGroup:
                     tax_dict[tax_group] = []
             
             for sequence in sequences:
- 
+                
                 if sequence.id == read_name.replace('_',':'):
+                    reverse_reads.append(sequence.id)
                     tax_dict[tax_group].append(sequence)
-                    
-        return tax_list
         
-    def read_extractor(self, reverse_reads, forward_reads, extraction_list):
+        return tax_list, reverse_reads
         
+    
+    def all_read_extractor(self, sequences, reads):
         
-        with tempfile.NamedTemporaryFile() as tmp:
+        print Messenger("Extracting reverse reads to join assembly").date_n_message()
+        
+        with open('tmp_allreads.txt', 'w') as ids:
             
-            cmd = "fxtract -X -H -f %s %s | awk '{print \">\" substr($0,2);getline;print;getline;getline} > %s" % (extraction_list, forward_reads, tmp.name) 
-            subprocess.check_call(cmd, shell = True)    
-            cmd = "mv %s ../for.fa"      
-            subprocess.check_call(cmd, shell = True)
+            for read in reads:
+                ids.write(read+'\n')
+        
+        cmd = "fxtract -X -H -f tmp_allreads.txt %s | awk '{print \">\" substr($0,2);getline;print;getline;getline}' > tmp_allreads.fa" % (sequences)
+                
+        subprocess.check_call(cmd, shell = True)
+        
+    def read_extractor(self, sequences):
+        
+        with open('tmp_grouped.txt', 'w') as ids:
             
-        with tempfile.NamedTemporaryFile() as tmp:
-            cmd = "fxtract -X -H -f %s %s | awk '{print \">\" substr($0,2);getline;print;getline;getline} > %s" % (extraction_list, reverse_reads, tmp.name)
-            subprocess.check_call(cmd, shell = True)
-            cmd = "mv %s ../rev.fa"
-            subprocess.check_call(cmd, shell = True)
+            for sequence in sequences:
+                ids.write(sequence.id+'\n')
         
-        cmd = 'cat for.fa rev.fa > '
-        
+        cmd = "fxtract -X -H -f tmp_grouped.txt tmp_allreads.fa > tmp_grouped.fa" 
+        subprocess.check_call(cmd, shell = True)
+
+        return
+    
     def assembler(self, tax_rank_list, output_directory, assembly_type):
         
         rank = ['K','P','C','O','F','G']
-        cmd = 'mkdir %s ' % output_directory
+        cmd = 'mkdir %s 2>/dev/null' % output_directory
         
         try:
             subprocess.check_call(cmd, shell = True)
@@ -133,15 +143,13 @@ class TaxoGroup:
         for idx, taxonomic_rank in enumerate(tax_rank_list):
             
             for tax_name, sequences in taxonomic_rank.iteritems():
-
                 number_of_sequences = len(list(sequences))
                 
                 if number_of_sequences > 10:
-                    
                     output_sequence_file_path = '%s_%s_%s_assembly.fa' % (rank[idx], tax_name, str(number_of_sequences))
                     
                     if assembly_type == "cap3":
-                        
+                                                
                         with tempfile.NamedTemporaryFile() as tmp:
                             SeqIO.write(sequences, tmp.name, "fasta")
                             cmd = 'cap3 %s -o 16 -p 98 > %s.junk' % (tmp.name, tmp.name)
@@ -173,17 +181,33 @@ class TaxoGroup:
                             subprocess.check_call(cmd, shell = True)
                     
                     elif assembly_type == "felvet":
-                        
+                                                   
                         with tempfile.NamedTemporaryFile() as tmp:
                             
-                            SeqIO.write(sequences, tmp.name, "fasta")
-                            cmd = 'finishm visualise --assembly-kmer 51 --assembly-coverage-cutoff 0 --velvet-directory %s/%s --fasta %s --assembly-svg %s.svg' % (output_directory, output_sequence_file_path, tmp.name, output_sequence_file_path)
+                            if args.reverse_reads:
+                                
+                                TaxoGroup().read_extractor(sequences)
+                                SeqIO.write(sequences, tmp.name, "fasta")
+                                                                
+                                cmd = 'cat tmp_grouped.fa %s > %s' % (tmp.name, output_sequence_file_path.replace('_assembly.fa', ''))
+                                subprocess.check_call(cmd, shell = True)
+                                                       
+                                cmd = 'finishm visualise --quiet --assembly-coverage-cutoff 1.5 --assembly-kmer %s --velvet-directory %s/%s --fasta %s --assembly-svg %s.svg' % (args.kmer, output_directory, output_sequence_file_path, output_sequence_file_path.replace('_assembly.fa', ''), output_sequence_file_path)
+                                subprocess.check_call(cmd, shell = True)
+                                
+                                cmd = 'mv *.svg %s' % (output_directory)
+                                subprocess.check_call(cmd, shell = True)
+                                
+                                cmd = 'mv %s %s' % (output_sequence_file_path.replace('_assembly.fa', ''), output_directory)
+                                subprocess.check_call(cmd, shell = True)
+                                
+                            else:
+                                SeqIO.write(sequences, tmp.name, "fasta")
                             
-                            subprocess.check_call(cmd, shell = True)
-                            
-                            cmd = 'mv *.svg %s' % (output_directory)
-                            
-                            subprocess.check_call(cmd, shell = True)
+                                subprocess.check_call(cmd, shell = True)
+                                
+                                cmd = 'mv *.svg %s' % (output_directory)
+                                subprocess.check_call(cmd, shell = True)
                             
                     elif assembly_type == "hmm":
                         
@@ -250,8 +274,13 @@ class TaxoGroup:
                             output.write('>'+tax_name+'\n')
                             output.write(''.join(final_sequence)+'\n')
                             output.write(','.join(liklihood)+'\n')
-                    
+        
+        
+        cmd = 'rm tmp*'
+        subprocess.check_call(cmd, shell = True)
+        
         print Messenger("Finished assembling\n").date_n_message()
+        print '========================================================='
                         
                         
                         
@@ -263,19 +292,31 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='''--- 16S assembler %s --- Groups and assembles 16S reads from a guppy file by taxonomic rank and classification.''' % __version__
                                 , epilog='==============================================================================')
-    parser.add_argument('--guppy', metavar='guppy file produced by graftM',  nargs=1 , help='guppy file produced by graftM', required=True)
-    parser.add_argument('--output', metavar='output directory', nargs=1, help='Directory within which to place assembled sequences', required=True)
-    parser.add_argument('--forward_reads', metavar='forward reads', nargs=1, help='The raw forward reads to extract from', required=True)
-    parser.add_argument('--reverse_reads', metavar='reverse reads', nargs=1, help='The raw reverse reads to extract from', required=True)
-    parser.add_argument('--reads_file', metavar='reads file',  nargs=1, help='unaligned reads file produced by graftM', default=argparse.SUPPRESS)
-    parser.add_argument('--assembly_type', metavar='type of assembly', nargs=1, help='cap3 or native hmmalignment assembly',choices = ['cap3','hmm', 'phrap', 'felvet'], required=True)
+    parser.add_argument('--guppy', metavar='guppy file produced by graftM', help='guppy file produced by graftM', required=True)
+    parser.add_argument('--output', metavar='output directory', help='Directory within which to place assembled sequences', required=True)
+    parser.add_argument('--reverse_reads', metavar='reverse reads', help='The reverse reads to extract from if necessary')
+    parser.add_argument('--reads_file', metavar='reads file',  help='unaligned reads file produced by graftM', required=True)
+    parser.add_argument('--kmer', metavar='k-mer',  help='k-mer for assembly with felvet')
+    parser.add_argument('--assembly_type', metavar='type of assembly', help='cap3 or native hmmalignment assembly',choices = ['cap3','hmm', 'phrap', 'felvet'], required=True)
     args = parser.parse_args()
     
+    if args.reverse_reads:
+        if args.kmer:
+            pass
+        else:
+            print Messenger("No k-mer specified for felvet assembly \n").error_message()
+            exit(1)
+            
+
     print intro
     
-    split_guppy = TaxoGroup().guppy_splitter(args.guppy[0])
-    grouped_sequences = TaxoGroup().rank_grouper(split_guppy, args.reads_file[0])
-    TaxoGroup().assembler(grouped_sequences, args.output[0], args.assembly_type[0])
+    split_guppy = TaxoGroup().guppy_splitter(args.guppy)
+    grouped_sequences, r_reads = TaxoGroup().rank_grouper(split_guppy, args.reads_file)
+    
+    if args.reverse_reads:
+        TaxoGroup().all_read_extractor(args.reverse_reads, r_reads)
+        
+    TaxoGroup().assembler(grouped_sequences, args.output, args.assembly_type)
             
     exit(1)    
 
