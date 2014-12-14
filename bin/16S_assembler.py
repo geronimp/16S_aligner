@@ -29,14 +29,7 @@ except ImportError:
     print "Please install Biopython first"
     exit(1)
     
-intro = '''
-       #######################################
-       ##         16S assembler %s       ##
-       ##               beta                ##
-       ##             Joel Boyd             ##
-       #######################################  
-       
-''' % __version__
+
 
 class Messenger:
     
@@ -53,66 +46,112 @@ class Messenger:
         return '  [%s]: == ERROR == %s' % (self.time, self.message)
 
 
-
 class TaxoGroup:       
+    
+    def main(self, args):
+        print ''' 
+            #######################################
+            ##         16S assembler %s       ##
+            ##               beta                ##
+            ##             Joel Boyd             ##
+            #######################################  
+       
+        ''' % __version__
+    
+        ## Split the lists of graftM runs
+        guppy_list = args.guppy.split(',')
+        f_sequence_list = args.reads_file.split(',')
+        r_sequence_list = args.reverse_reads.split(',')
         
-    def guppy_splitter(self, guppy_file):  
+        ## Creates a list of sequences and their taxonomic classification from all the guppy files 
+        split_guppys = TaxoGroup().guppy_splitter(guppy_list)
         
-        print Messenger("Parsing guppy file").date_n_message()
+        ## Grabs the sequences from the forward reads, and grabs the corresponding reverse reads as well.
+        grouped_sequences = TaxoGroup().rank_grouper(split_guppys, f_sequence_list, r_sequence_list)
+        
+                   
+        TaxoGroup().assembler(grouped_sequences, args.output, args.assembly_type)
+                
+        exit(1)
+        
+        
+    def guppy_splitter(self, guppy_file_list):  
+        print Messenger("Parsing the guppy file(s)").date_n_message()
+        
         read_tax_dict = {}
         
-        for line in open(guppy_file,'r'):
+        for guppy_file in guppy_file_list:           
             
-            lst = list(line.rstrip().replace('Candidatus ', 'Candidatus_').split())
-            
-            if lst[0] != 'name' and lst[1] == lst[2] and float(lst[len(lst)-2]) > float(0.5):
+            for line in open(guppy_file,'r'):
                 
-                if lst[0] not in read_tax_dict:
-                    read_tax_dict[lst[0]] = []
-                    read_tax_dict[lst[0]].append(lst[3])
+                lst = list(line.rstrip().replace('Candidatus ', 'Candidatus_').split())
                 
-                else:
-                    read_tax_dict[lst[0]].append(lst[3])
+                if lst[0] != 'name' and lst[1] == lst[2] and float(lst[len(lst)-2]) > float(0.5):
+                    
+                    if lst[0] not in read_tax_dict:
+                        read_tax_dict[lst[0]] = [lst[3]]
+                    
+                    else:
+                        if len(read_tax_dict[lst[0]]) < 7:
+                            read_tax_dict[lst[0]].append(lst[3])
         
         return read_tax_dict
           
 
-    def rank_grouper(self, dictionary, sequences_file):
+    def rank_grouper(self, split_guppy, f_sequences_list, r_sequences_list):
         
-        print Messenger("Sorting 16S sequences").date_n_message()
-        sequences = set(SeqIO.parse(open(sequences_file, 'r'), 'fasta'))
+        '''Gathers the sequences that correspond to each id, and taxonomic rank within the split guppy'''
+        
+        
+        n_misses = 0
+        f_sequences = []
+        r_sequences = []
         tax_list = [{}, {}, {}, {}, {}, {}]
-        reverse_reads = []
         
-        for read_name, classification in dictionary.iteritems():
+        for f in f_sequences_list:                         
+            f_sequences += list(SeqIO.parse(open(f, 'r'), 'fasta'))
+            print Messenger("%s reads found in %s." % (len(list(SeqIO.parse(open(f, 'r'), 'fasta'))), f)).date_n_message() 
+        
+        print Messenger("Using %s forward reads in total." % (len(f_sequences))).date_n_message() 
+
+        set_f_sequences = set(f_sequences)
+        
+        print Messenger("Sorting 16S forward sequences into taxonomic groups.").date_n_message()
+        
+        for read_name, classification in split_guppy.iteritems():
+            taxonomic_group = classification[len(classification) - 1]
+            try:
+                tax_dict = tax_list[len(classification) - 2]
+            except:
+                code.interact(local=locals())
+            if taxonomic_group not in tax_dict:
+                tax_dict[taxonomic_group] = []
             
-            tax_group = classification[len(classification) - 1]
-            tax_dict = tax_list[len(classification) - 2]
-            
-            if tax_group not in tax_dict:
-                    tax_dict[tax_group] = []
-            
-            for sequence in sequences:
-                
+            for sequence in set_f_sequences:
+                   
                 if sequence.id == read_name.replace('_',':'):
-                    reverse_reads.append(sequence.id)
-                    tax_dict[tax_group].append(sequence)
-        
-        return tax_list, reverse_reads
-        
-    
-    def all_read_extractor(self, sequences, reads):
-        
-        print Messenger("Extracting reverse reads to join assembly").date_n_message()
-        
-        with open('tmp_allreads.txt', 'w') as ids:
+                    r_sequences.append(sequence.id)
+                    tax_dict[taxonomic_group].append(sequence)
+                    
+
+        print Messenger("%s reads were found to have no placement in the guppy file(s)." % str(len(f_sequences) - len(r_sequences))).date_n_message()             
+        print Messenger("Extracting the corresponding reverse reads to join the assembly.").date_n_message() 
             
-            for read in reads:
+        with open('tmp_allreads.txt', 'w') as ids:    
+            
+            for read in r_sequences:
                 ids.write(read+'\n')
         
-        cmd = "fxtract -X -H -f tmp_allreads.txt %s | awk '{print \">\" substr($0,2);getline;print;getline;getline}' > tmp_allreads.fa" % (sequences)
-                
+        for idx, r_sequence_file in enumerate(r_sequences_list):
+            cmd = "fxtract -X -H -f tmp_allreads.txt %s | awk '{print \">\" substr($0,2);getline;print;getline;getline}' > tmp_allreads_%s.fa" % (r_sequence_file, str(idx))
+            subprocess.check_call(cmd, shell = True)
+        
+        
+        cmd = "cat tmp_allreads_*.fa > tmp_allreads.fa"
         subprocess.check_call(cmd, shell = True)
+
+        return tax_list
+
         
     def read_extractor(self, sequences):
         
@@ -129,6 +168,7 @@ class TaxoGroup:
     def assembler(self, tax_rank_list, output_directory, assembly_type):
         
         rank = ['K','P','C','O','F','G']
+        p_rank= ['Kingdom','Phylum','Class','Order','Family','Genus']
         cmd = 'mkdir %s 2>/dev/null' % output_directory
         
         try:
@@ -138,15 +178,15 @@ class TaxoGroup:
             print Messenger("A folder with the name '%s' already exists... This is awkward... \n" % output_directory).error_message()    
             exit(1)
         
-        print Messenger("Assembling using %s" % assembly_type).date_n_message()
+        
         
         for idx, taxonomic_rank in enumerate(tax_rank_list):
-            
+            print Messenger("Using %s to assemble reads classified at the %s level." % (assembly_type, p_rank.pop(0))).date_n_message()
             for tax_name, sequences in taxonomic_rank.iteritems():
                 number_of_sequences = len(list(sequences))
                 
                 if number_of_sequences > 10:
-                    output_sequence_file_path = '%s_%s_%s_assembly.fa' % (rank[idx], tax_name, str(number_of_sequences))
+                    output_sequence_file_path = '%s_%s_%s_assembly.fa' % (rank[idx], tax_name, str(number_of_sequences*2))
                     
                     if assembly_type == "cap3":
                                                 
@@ -180,7 +220,7 @@ class TaxoGroup:
                             cmd = 'mv %s.contigs ./%s/%s' % (tmp.name, output_directory, output_sequence_file_path)
                             subprocess.check_call(cmd, shell = True)
                     
-                    elif assembly_type == "felvet":
+                    elif assembly_type == "velvet":
                                                    
                         with tempfile.NamedTemporaryFile() as tmp:
                             
@@ -280,7 +320,6 @@ class TaxoGroup:
         subprocess.check_call(cmd, shell = True)
         
         print Messenger("Finished assembling\n").date_n_message()
-        print '========================================================='
                         
                         
                         
@@ -292,33 +331,18 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='''--- 16S assembler %s --- Groups and assembles 16S reads from a guppy file by taxonomic rank and classification.''' % __version__
                                 , epilog='==============================================================================')
-    parser.add_argument('--guppy', metavar='guppy file produced by graftM', help='guppy file produced by graftM', required=True)
+    parser.add_argument('--guppy', metavar='guppy file produced by graftM', help='guppy file produced by graftM, comma separated **IN THE SAME ORDER AS THE SPECIFIED READS**', required=True)
     parser.add_argument('--output', metavar='output directory', help='Directory within which to place assembled sequences', required=True)
-    parser.add_argument('--reverse_reads', metavar='reverse reads', help='The reverse reads to extract from if necessary')
-    parser.add_argument('--reads_file', metavar='reads file',  help='unaligned reads file produced by graftM', required=True)
-    parser.add_argument('--kmer', metavar='k-mer',  help='k-mer for assembly with felvet')
-    parser.add_argument('--assembly_type', metavar='type of assembly', help='cap3 or native hmmalignment assembly',choices = ['cap3','hmm', 'phrap', 'felvet'], required=True)
+    parser.add_argument('--reverse_reads', metavar='reverse reads', help='The reverse reads to extract from **IN THE SAME ORDER AS THE GUPPY FILES**', required=True)
+    parser.add_argument('--reads_file', metavar='reads file',  help='unaligned reads file produced by graftM **IN THE SAME ORDER AS THE GUPPY FILES**', required=True)
+    parser.add_argument('--kmer', metavar='k-mer',  help='k-mer to use for assembly with velvet')
+    parser.add_argument('--assembly_type', metavar='type of assembly', help='phrap or velvet assembly',choices = ['phrap', 'velvet'], required=True)
     args = parser.parse_args()
     
-    if args.reverse_reads:
-        if args.kmer:
-            pass
-        else:
-            print Messenger("No k-mer specified for felvet assembly \n").error_message()
-            exit(1)
-            
 
-    print intro
+    TaxoGroup().main(args)      
     
-    split_guppy = TaxoGroup().guppy_splitter(args.guppy)
-    grouped_sequences, r_reads = TaxoGroup().rank_grouper(split_guppy, args.reads_file)
-    
-    if args.reverse_reads:
-        TaxoGroup().all_read_extractor(args.reverse_reads, r_reads)
-        
-    TaxoGroup().assembler(grouped_sequences, args.output, args.assembly_type)
-            
-    exit(1)    
+    exit(1)
 
 
 
